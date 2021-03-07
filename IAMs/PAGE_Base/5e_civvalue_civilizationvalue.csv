@@ -1,0 +1,5 @@
+# Index: time
+# Units: $ / person
+
+Value
+~Triangular(1e10;1e11;5e10)

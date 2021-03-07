@@ -1,0 +1,5 @@
+# Index: time,,,,,,,
+# Units: $ / person,,,,,,,
+,,,,,,,
+Value1,Value2,Value3,Value4,Value5,Value6,Value7,Value8
+~N(1;0),~Triangular(0.8;1.2;1),~Triangular(1;1.5;1.2),~Triangular(0.4;1;0.7),~Triangular(0.8;1.2;1),~Triangular(1;1.5;1.2),~Triangular(1;1.5;1.2),~Triangular(0.4;1;0.7)
