@@ -1,7 +1,8 @@
 clock_Current<-function(year_current){
   t=year_current; 
 }
-Time_periods = 39;
+
+Time_periods = 100;
 simulation_year=2;
 fosslim=6000;
 tstep=5;
@@ -9,10 +10,13 @@ t0=1;
 ifopt=0;
 #discount rate
 elasmu=1.45;
-prstp=0.03;
+prstp=0.015;
 
-elasmu=0;
-prstp=0.05; 
+# elasmu=0;
+# prstp=0.05; 
+
+scale1 = 0.0302455265681763;
+scale2 = -10993.704;
 
 # Population and technology
 gama=0.300;
@@ -22,15 +26,11 @@ popasym=11500;
 dk=0.1;
 q0=105.5
 
-###capital stock is recalibrated based on the IMF capital stock database
-k0=143;  #$2005 market exchange rate
+k0=223;  
 
 a0=5.115;
 ga0=0.076;
 dela=0.005;
-
-#**economic parameters
-saving_rate = 0.2;  #fixed saving rate, same with the FUND and PAGE model
 
 # Emissions parameters
 gsigma1=-0.0152 ;
@@ -51,7 +51,8 @@ mleq=1720;
 b12=0.12 ;
 b23=0.007;
 # ** Climate model parameters
-t2xco2=3;
+eqmat = 588.000;
+t2xco2=3.1;
 fex0=0.5;
 fex1=1.0;
 tocean0=0.0068;
@@ -65,6 +66,7 @@ a10=0;
 a1=0;
 a2=0.00236;
 a3=2.00;
+usedamadj=TRUE
 #** Abatement cost
 expcost2=2.6;
 pback=550;
@@ -150,44 +152,125 @@ TATM[t0,1]= tatm0;
 TOCEAN[t0,1] = tocean0;
 FORC[t0,1]= fco22x * ((log((MAT[t0,1]/588.000))/log(2))) + forcoth[t0,1];
 
-## load socio-economic data and emissions data from SSPs
-EIND<-t(Dice_data[4,3:61]);
-etree=t(Dice_data[1,3:61])*44/12;
-forcoth=t(Dice_data[5,3:61]);  # other gases forcing simulated by the Hector model
-YGROSS_base = matrix(nrow = Time_periods,ncol = 1)   #Gross world product GROSS of abatement and damages (trillions 2005 USD per year)
-YGROSS_base=t(Dice_data[3,3:61]);
-l = t(Dice_data[2,3:61]);
-
-## calculate parameter al and K;
-al[t0] = (YGROSS_base[t0]/(K[t0]^gama))/((l[t0]/1000)^(1-gama));
-K_base = K;
-C_base = (1-saving_rate)*YGROSS_base;
-
-for(t in 1:(Time_periods-1)){
-  K_base[t+1]  = (1-dk)**tstep * K_base[t] + tstep * YGROSS_base[t] * saving_rate
-  al[t+1] = (YGROSS_base[t+1]/(K_base[t+1]^gama))/((l[t+1]/1000)^(1-gama));
+## load socio-economic data and emissions parametes from 
+etree=t(DICE_data[1,-1]);
+MIU=t(DICE_data[2,-1]);
+sigma=t(DICE_data[3,-1]);
+al=t(DICE_data[4,-1]);
+l=t(DICE_data[5,-1]);
+forcoth=t(DICE_data[6,-1]);
+cost1=t(DICE_data[7,-1]);
+partfract=t(DICE_data[8,-1]);
+pbacktime=t(DICE_data[9,-1]);
+rr=matrix( nrow = Time_periods, ncol = 1);
+for(t in 1:Time_periods){
+  rr[t]=1/((1+prstp)**(tstep*(t-1)))
 }
 
-for(t in 1:(Time_periods-1)){
-  rr[t]=1/((1+prstp)**(tstep*(t-simulation_year)+1));
-}
+S=t(DICE_data[11,-1]);
 
-###main componenet of DICE model
+
 Emission_component<-function(){
-  t=clock_Current(year_current)
-  E[t,1]<<- (EIND[t,1] + etree[t,1])*1;
+  t=clock_Current(year_current);
+  EIND[t] <<- sigma[t] * YGROSS[t] * (1- MIU[t])
+  
+  #Define function for E
+  E[t] <<- EIND[t] + etree[t]
+  
+  #Define function for CCA
+  if (t>1){
+    CCA[t] <<- CCA[t-1] + EIND[t-1] * 5/3.666
+  }
 }
+
+
+# tfirst(t), tlast(t), tearly(t), tlate(t);
+# K = matrix(nrow = Time_periods,ncol = 1)   #Capital stock (trillions 2005 US dollars)
+# YGROSS = matrix(nrow = Time_periods,ncol = 1)   #Gross world product GROSS of abatement and damages (trillions 2005 USD per year)
+# al= matrix(nrow = Time_periods,ncol = 1)  #Level of total factor productivity
+# I = matrix(nrow = Time_periods,ncol = 1)   #Investment (trillions 2005 USD per year)
+# l = matrix(nrow = Time_periods,ncol = 1)
+
+Gross_economy<-function(){
+  t=clock_Current(year_current)
+  
+  t=clock_Current(year_current)
+  if(t==1){
+    K[t]<<-k0;
+  }
+  else{
+    K[t] <<- (1 - dk)^5 * K[t-1] + 5 * I[t-1]
+    
+  }
+  YGROSS[t] <<- (al[t] * (l[t]/1000)^(1-gama)) * (K[t]^gama)
+}
+
+
+
+MAT = matrix(nrow = Time_periods,ncol = 1)    #Carbon concentration increase in atmosphere (GtC from 1750)
+ML  = matrix(nrow = Time_periods,ncol = 1)    #Carbon concentration increase in lower oceans (GtC from 1750)
+MU  = matrix(nrow = Time_periods,ncol = 1)    #Carbon concentration increase in shallow oceans (GtC from 1750)
+#E   = matrix(nrow = Time_periods,ncol = 1)
+
+CO2_cycle<-function(){
+  t=clock_Current(year_current)
+  
+  if (t==1){
+    MAT[t] <<- mat0
+  }
+  else{
+    MAT[t] <<- MAT[t-1] * b11 + MU[t-1] * b21 + (E[t-1]*(5/3.666))
+  }
+  
+  #Define function for MU
+  if (t==1){
+    MU[t] <<- mu0
+  }
+  else{
+    MU[t] <<- MAT[t-1] * b12 + MU[t-1] * b22 + ML[t-1] * b32
+  }
+  
+  #Define function for ML
+  if (t==1){
+    ML[t] <<- ml0
+  }
+  else{
+    ML[t] <<- ML[t-1] * b33 + MU[t-1] * b23
+  }
+}
+
+
+FORC = matrix(nrow = Time_periods,ncol = 1)   #Increase in radiative forcing (watts per m2 from 1900)
+#forcoth = matrix(nrow = Time_periods,ncol = 1)   #Exogenous forcing for other greenhouse gases
+
+Radiativeforcing<-function(){
+  t=clock_Current(year_current)
+  FORC[t] <<- fco22x * (log((MAT[t] / eqmat)) / log(2)) + forcoth[t];
+  
+}
+
+TATM    = matrix(nrow = Time_periods,ncol = 1)   #Increase in temperature of atmosphere (degrees C from 1900)
+TOCEAN  = matrix(nrow = Time_periods,ncol = 1)   #Increase in temperature of lower oceans (degrees C from 1900)
+#FORC    = matrix(nrow = Time_periods,ncol = 1)
 
 Climatedynamics<-function(){
-  #*Emissions and Damages
-  #  EIND[t,1]=sigma[t,1] * YGROSS[t,1] * (1-(para[t]));
   t=clock_Current(year_current)
-  MAT[t+1,1]<<- MAT[t,1]*b11 + MU[t,1]*b21 + (E[t,1]*(5/3.666));
-  FORC[t+1,1]<<- fco22x * ((log((MAT[t+1,1]/588.000))/log(2))) + forcoth[t+1,1];
-  ML[t+1,1] <<- ML[t,1]*b33  + MU[t,1]*b23;
-  MU[t+1,1] <<- MAT[t,1]*b12 + MU[t,1]*b22 + ML[t,1]*b32;
-  TATM[t+1,1] <<- TATM[t,1] + c1 * ((FORC[t+1,1]-(fco22x/t2xco2)*TATM[t,1])-(c3*(TATM[t,1]-TOCEAN[t,1])));
-  TOCEAN[t+1,1] <<- TOCEAN[t,1] + c4*(TATM[t,1]-TOCEAN[t,1]);
+  
+  if (t==1){
+    TATM[t] <<- tatm0
+  }
+  else{
+    TATM[t] <<- TATM[t-1] + c1 * ((FORC[t] - (fco22x/t2xco2) * TATM[t-1]) - (c3 * (TATM[t-1] - TOCEAN[t-1])))
+  }
+  
+  #Define function for TOCEAN
+  if (t==1){
+    TOCEAN[t] <<- tocean0
+  }
+  else{
+    TOCEAN[t] <<- TOCEAN[t-1] + c4 * (TATM[t-1] - TOCEAN[t-1])
+  }
+  
 }
 
 DAMAGES = matrix(nrow = Time_periods,ncol = 1)     #Damages (trillions 2005 USD per year)
@@ -195,46 +278,190 @@ DAMFRAC = matrix(nrow = Time_periods,ncol = 1)    #Increase in temperature of at
 
 Damages_component<-function(){
   t=clock_Current(year_current)
-  DAMFRAC[t] <<- 1-1/(1+a1 * TATM[t] + a2 * TATM[t]^a3) ;
-  DAMFRAC[t] <<- min(0.99,DAMFRAC[t]);
+  
+  DAMFRAC[t] <<- a1 * TATM[t] + a2 * TATM[t]^a3 ;
+  
   #Define function for DAMAGES
-  # GAMS Version
+  if (usedamadj==TRUE){
+    # Excel version
+    DAMAGES[t] <<- YGROSS[t] * DAMFRAC[t]
+  }
+  else{
+    # GAMS Version
+    DAMAGES[t] <<- YGROSS[t] * 1/(1 + DAMFRAC[t])
+  }
 }
+
+Discount_rate<-matrix(nrow=Time_periods-1,ncol=1);
 
 Neteconomy<-function(){
   t=clock_Current(year_current)
-  YGROSS[t]<<- al[t]*((l[t]/1000)^(1-gama))*(K[t]^gama)*(1-DAMFRAC[t]);
-  C[t] <<- (1-saving_rate)*YGROSS[t];
-  K[t+1] <<- K[t]*(1-dk)^tstep + saving_rate*YGROSS[t]*tstep;
+  
+  YNET[t] <<-  YGROSS[t] -  DAMAGES[t]
+  
+  #Define function for ABATECOST
+  ABATECOST[t] <<-  YGROSS[t] *  cost1[t] * ( MIU[t]^ expcost2) * ( partfract[t]^(1 -  expcost2))
+  
+  #Define function for MCABATE (equation from GAMS version)
+  MCABATE[t] <<-  pbacktime[t] *  MIU[t]^( expcost2 - 1)
+  
+  #Define function for Y
+  Y[t] <<-  YNET[t] -  ABATECOST[t]
+  
+  #Define function for I
+  I[t] <<-  S[t] *  Y[t]
+  
+  #Define function for C
+  C[t] <<- Y[t] -  I[t]
+  
+  #Define function for CPC
+  CPC[t] <<- 1000 *  C[t] /  l[t]
+  
+  #Define function for CPRICE (equation from GAMS version of DICE2013)
+  CPRICE[t] <<-  pbacktime[t] * ( MIU[t] /  partfract[t])^( expcost2 - 1)
+  
+  
+  #discounted rate
+  
+}
+
+Neteconomy_extarC<-function(){
+  t=clock_Current(year_current)
+  
+  YNET[t] <<-  YGROSS[t] -  DAMAGES[t]
+  
+  #Define function for ABATECOST
+  ABATECOST[t] <<-  YGROSS[t] *  cost1[t] * ( MIU[t]^ expcost2) * ( partfract[t]^(1 -  expcost2))
+  
+  #Define function for MCABATE (equation from GAMS version)
+  MCABATE[t] <<-  pbacktime[t] *  MIU[t]^( expcost2 - 1)
+  
+  #Define function for Y
+  Y[t] <<-  YNET[t] -  ABATECOST[t]
+  
+  #Define function for I
+  I[t] <<-  S[t] *  Y[t]
+  
+  #Define function for C
+  C[t] <<- Y[t] -  I[t]+margin_value
+  
+  #Define function for CPC
+  CPC[t] <<- 1000 *  C[t] /  l[t]
+  
+  #Define function for CPRICE (equation from GAMS version of DICE2013)
+  CPRICE[t] <<-  pbacktime[t] * ( MIU[t] /  partfract[t])^( expcost2 - 1)
+  
+  
+  #discounted rate
+  
 }
 
 
+CEMUTOTPER  = matrix(nrow = Time_periods,ncol = 1)     #Period utility
+CUMCEMUTOTPER = matrix(nrow = Time_periods,ncol = 1)     #Cumulative period utility
+PERIODU  = matrix(nrow = Time_periods,ncol = 1)    #One period utility function
+CPC = matrix(nrow = Time_periods,ncol = 1)    #Per capita consumption (thousands 2005 USD per year)
+#l = matrix(nrow = Time_periods,ncol = 1)    #Level of population and labor
+#rr  = matrix(nrow = Time_periods,ncol = 1)    #Average utility social discount rate
+
+Welfare_component<-function(){
+  t=clock_Current(year_current)
+  PERIODU[t] <<- ( CPC[t] ^ (1 -  elasmu) - 1) / (1 -  elasmu) - 1
+  
+  #Define function for CEMUTOTPER
+  CEMUTOTPER[t] <<-  PERIODU[t] *  l[t] *  rr[t]
+  
+  #Define function for CUMCEMUTOTPER
+  if (t ==1){
+    CUMCEMUTOTPER[t] <<-  CEMUTOTPER[t]
+  }
+  else{
+    CUMCEMUTOTPER[t] <<-  CUMCEMUTOTPER[t-1] +  CEMUTOTPER[t]
+  }
+  
+  #Define function for UTILITY
+  if (t==Time_periods){
+    UTILITY <<- 5 *  scale1 *  CUMCEMUTOTPER[Time_periods] +  scale2
+  }
+  
+}
+
+Discount_factor=matrix(nrow = Time_periods,ncol = 1);
+Discount_factor[t0]=1;
+
 Playground_model<-function(){
-  for(t in 1:(Time_periods-1)){
+  for(t in 1:Time_periods){
     year_current<<-t;
+    Gross_economy();
     Emission_component();
+    CO2_cycle();
+    Radiativeforcing();
     Climatedynamics();
     Damages_component();
     Neteconomy();
+    Welfare_component();
+  }
+  for(t in 1:(Time_periods-1)){
+    Discount_rate[t]<<-(1+prstp) * (CPC[t+1]/CPC[t])**(elasmu/tstep) - 1;
+    Discount_factor[t+1]<<-Discount_factor[t]*((1/(1+Discount_rate[t]))^tstep);
   }
 }
-
 
 Extra_emission_model<-function(){
-  for(t in 1:(Time_periods-1)){
+  for(t in 1:Time_periods){
     year_current<<-t;
     if(t==simulation_year){
+      Gross_economy();
       Emission_component();
-      E[t] <<- E[t]+20;
+      E[t] <<- E[t]+margin_value;
+      CO2_cycle();
+      Radiativeforcing();
       Climatedynamics();
       Damages_component();
       Neteconomy();
+      Welfare_component();
     }
     else{
+      Gross_economy();
       Emission_component();
+      CO2_cycle();
+      Radiativeforcing();
       Climatedynamics();
       Damages_component();
       Neteconomy();
+      Welfare_component();
     }
   }
 }
+CC_marginal<-function(){
+  for(t in 1:Time_periods){
+    year_current<<-t;
+    if(t==simulation_year){
+      Gross_economy();
+      Emission_component();
+      CO2_cycle();
+      Radiativeforcing();
+      Climatedynamics();
+      Damages_component();
+      Neteconomy_extarC();
+      Welfare_component();
+    }
+    else{
+      Gross_economy();
+      Emission_component();
+      CO2_cycle();
+      Radiativeforcing();
+      Climatedynamics();
+      Damages_component();
+      Neteconomy();
+      Welfare_component();
+    }
+    for(t in 1:(Time_periods-1)){
+      Discount_rate[t]<<-(1+prstp) * (CPC[t+1]/CPC[t])**(elasmu/tstep) - 1;
+      Discount_factor[t+1]<<-Discount_factor[t]*((1/(1+Discount_rate[t]))^tstep);
+    }
+  }
+}
+
+
+
