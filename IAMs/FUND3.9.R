@@ -1,23 +1,17 @@
 # FUND_R_version:authorized by Tianpeng Wang
-TimeStep=251; #时间跨度
-#判断气候损失对收入的影响是否会转入下一年
-runwithoutdamage=FALSE;
-#判断气候损失对人口的影响是否会转入下一年
-runwithoutpopulationperturbation=FALSE;
-
-model_choose="BestGuess";
+TimeStep=351;
+library("triangle")
+model_choose="BestGuess"
 a=list.files("FUND_Base");
+
 datalist=lapply(a,function(name){
-  read.table(paste("FUND_Base/",name,sep=""),sep=",");
+  read.table(paste("FUND_Base/",name,sep=""),sep=",")
 });
-emissionperiod<-71;
-impulselength<-10;
-options(digits = 15);
+emissionperiod<-61;
+impulselength=10;
+options(digits = 20);
 file_num=195;
 t0=1; #起始年份，模型默认为1950年
-
-library("triangle");
-
 Region_No=16; #区域数量
 Sector_No=15;
 MarginalEmission_CO2=FALSE;
@@ -29,9 +23,10 @@ clock_Current<-function(year_current){
   t<<-year_current; 
 }
 # 编写best_guess函数
+# 编写best_guess函数
 Best_Guess<-function(a)
 {
-  if (model_choose=="MonteCarlo"){
+  if (model_choose=="MontelCarlo"){
     if(is.numeric(a))
     {
       Best_Guess=a;
@@ -165,6 +160,7 @@ Best_Guess<-function(a)
     }
   }
 }
+
 #编写分布函数
 #考虑不确定情景
 TimeOfUncertaintyStart=2000;  #不确定年份的起始时间设置
@@ -212,10 +208,9 @@ for(i in 1:TimeStep)
     pgrowth[i,j]=scenpgrowth[i,j]+ifelse((i-1)>=TimeOfUncertaintyStart_value,pgadd[1,j]*SdTimeFactor,0.0);
     aeei[i,j]=scen_aeei[i,j]+ifelse((i-1)>=TimeOfUncertaintyStart_value,aeei_add[1,j]*SdTimeFactor,0.0);
     acei[i,j]=scen_acei[i,j]+ifelse((i-1)>=TimeOfUncertaintyStart_value,acei_add[1,j]*SdTimeFactor,0.0);
+    forestemm[i,j]=scenforestemm[i,j]+ifelse((i-1)>=TimeOfUncertaintyStart_value,foremadd[1,j]*SdTimeFactor,0.0);
   }
 }
-
-
 #编写地理变化情况
 Area=matrix(0,nrow=TimeStep,ncol=Region_No);#各个地区的区域面积（扣除了海平面上升导致的）
 for(r in 1:Region_No){
@@ -225,7 +220,9 @@ GeographyComponent<-function(landloss) #参数landloss是一个矩阵,来自于�
 {
   t=clock_Current(year_current);
   # t=2;
-  Area[t,] <<- Area[t-1,] - landloss[t-1,];
+  for(r in 1:Region_No){
+    Area[t,r]<<-Area[t-1,r]-landloss[t-1,r];
+  }
   #  return(Area);
 }
 #编写人口变化函数
@@ -237,33 +234,27 @@ for(r in 1:Region_No){
   population1[t0,r]=population[t0,r]*1000000;
   globalpopulation[t0,1]=globalpopulation[t0,1]+population1[t0,r];#计算全球1950年总人口
 }
-
+runwithoutpopulationperturbation=FALSE;
 FromSimulationYear=1990;
 FromSimulationYear_value=FromSimulationYear-1950;
-
 PopulationComponent<-function(pgrowth,leave,enter,dead)#参数均为矩阵，来自不同的函数结果
 {
   t=clock_Current(year_current);
   t_value=t-1;
   globalpopulation=0;
-  if(runwithoutpopulationperturbation==FALSE){
-    if(t_value<40)  {population_factor=0;}
-    else {
-      population_factor=(enter[t-1,]/1000000)-(leave[t-1,]/1000000)-(ifelse(dead[t-1,]>=0,dead[t-1,]/1000000,0));
+  for(r in 1:Region_No){
+    if(runwithoutpopulationperturbation==FALSE){
+      if(t_value<40)  {population_factor=0;}
+      else {
+        population_factor=(enter[t-1,r]/1000000)-(leave[t-1,r]/1000000)-(ifelse(dead[t-1,r]>=0,dead[t-1,r]/1000000,0));
+      }
     }
+    else {population_factor=0;}
+    population[t,r]<<-(1+0.01*pgrowth[t-1,r])*(population[t-1,r]+population_factor);
+    if(population[t,r]<0)   population[t,r]=0.000001;
+    population1[t,r]<<-population[t,r]*1000000;
+    globalpopulation=globalpopulation+population1[t,r];
   }
-  else {population_factor=0;}
-  population[t,]<<-(1+0.01*pgrowth[t-1,])*(population[t-1,]+population_factor);
-  
-  population[50,] <<- as.vector(as.matrix(pop_ssp[1,-1]));
-  if(t>=51)  {
-    population_factor=(enter[t-1,]/1000000)-(leave[t-1,]/1000000)-(ifelse(dead[t-1,]>=0,dead[t-1,]/1000000,0));
-    population[t,]<<-as.vector(as.matrix(pop_ssp[t-49,-1]/pop_ssp[t-50,-1]))*(population[t-1,] + population_factor);
-  }
-  
-  population[t,]<<-ifelse(population[t,] > 0,population[t,],0.000001)
-  population1[t, ]<<-population[t, ]*1000000;
-  globalpopulation=globalpopulation+sum(population1[t,]);
   globalpopulation[t,1]<<-globalpopulation;
 }
 #编写社会经济函数
@@ -296,49 +287,51 @@ for(r in 1:Region_No){
   ypc90[1,r]=gdp90[1,r]/pop90[1,r]*1000;
   urbcorr[1,r]=Best_Guess(datalist[[173]]$V2[r])
 }
+runwithoutdamage=FALSE;
 consleak=Best_Guess(datalist[[48]]$V1);
 SocialEconomicComponemt<-function(ypcgrowth,pgrowth,eloss,sloss,mitigationcost,Area,globalpopulation,population,population1){
   t=clock_Current(year_current);
   t_value=t-1;
-  
-  ygrowth[t,]<<-(1+0.01*pgrowth[t-1,])*(1+0.01*ypcgrowth[t-1,])-1;
-  if(t_value>=FromSimulationYear_value&&runwithoutdamage==FALSE) { oldincome = income[t-1,]-consleak*eloss[t-1,]/10} else{
-    oldincome = income[t-1,] - 0;
-  };
-  income[t,]<<-(1+ygrowth[t,])*oldincome-mitigationcost[t-1,];
-  
-  income[50,] <<- as.vector(as.matrix(gdp_ssp[1,-1]));
-  if(t>=51)  {
-    if(t_value>=FromSimulationYear_value&&runwithoutdamage==FALSE){oldincome = income[t-1,] - consleak*eloss[t-1,]/10} else{
-      oldincome = income[t-1,] - 0;
+  for(r in 1:Region_No)
+  {
+    ygrowth[t,r]<<-(1+0.01*pgrowth[t-1,r])*(1+0.01*ypcgrowth[t-1,r])-1;
+  }
+  for(r in 1:Region_No){
+    oldincome=income[t-1,r]-ifelse(t_value>=FromSimulationYear_value&&runwithoutdamage==FALSE,consleak*eloss[t-1,r]/10,0);
+    income[t,r]<<-(1+ygrowth[t,r])*oldincome-mitigationcost[t-1,r];
+  }
+  for(r in 1:Region_No){
+    if(income[t,r]<0.01*population[t,r])
+    {
+      income[t,r]<<-0.1*population[t,r];
     }
-    income[t,]<<-as.vector(as.matrix(gdp_ssp[t-49,-1]/gdp_ssp[t-50,-1]))*oldincome-mitigationcost[t-1,];
   }
-  
-  income[t,] <<- ifelse(income[t,]<0.01*population[t,],0.1*population[t,],income[t,]);
-  
-  ypc[t,]<<-income[t,]/population[t,]*1000;
-  
+  for(r in 1:Region_No){
+    ypc[t,r]<<-income[t,r]/population[t,r]*1000;
+  }
   total_consumpation=0;
-  consumption[t,]<<-ifelse((income[t,]*1000000000*(1-savingsrate)-ifelse(rep(runwithoutdamage,Region_No)==TRUE,0,(eloss[t-1,]+sloss[t-1,])*1000000000))>0,(income[t,]*1000000000*(1-savingsrate)-ifelse(rep(runwithoutdamage,Region_No)==TRUE,0,(eloss[t-1,]+sloss[t-1,])*1000000000)),0)
-  
-  total_consumpation<<-total_consumpation+sum(consumption[t,]);
-  
-  plus[t,]<<-plus90[1,]*((ypc[t,]/ypc90[1,])^plusel);
-  plus[t,]<<-ifelse(plus[t,]>1,1,plus[t,])
-  
-  popdens[t,]<<-population[t,]/Area[t,]*1000000;
-  
-  urbpop_temp = (0.031*(ypc[t,]^0.5)-0.011*(popdens[t,]^0.5))/((1+0.031*(ypc[t,]^0.5)-0.011*(popdens[t,]^0.5)));
-  urbpop[t,]<<-urbpop_temp/(1+(urbcorr[1,]/(1+0.001*((t_value-40)^2))));
-  
-  if(t>=56){
-    urbpop[t,]<<-as.vector(as.matrix(urb_pop_ssp[t-55,-1]));
+  for(r in 1:Region_No){
+    consumption[t,r]<<-max(income[t,r]*1000000000*(1-savingsrate)-ifelse(runwithoutdamage==TRUE,0,(eloss[t-1,r]+sloss[t-1,r])*1000000000))
+    total_consumpation<<-total_consumpation+consumption[t,r];
   }
-  
-  globalincome[t]<<-sum(income[t,]);
-  globalpop[t]<<-sum(population1[t,]);
-  globalypc[t]<<-globalincome[t]*1000000000/globalpop[t];
+  for(r in 1:Region_No){
+    plus[t,r]<<-plus90[1,r]*((ypc[t,r]/ypc90[1,r])^plusel);
+    if(plus[t,r]>1)   plus[t,r]<<-1;
+  }
+  for(r in 1:Region_No){
+    popdens[t,r]<<-population[t,r]/Area[t,r]*1000000;
+  }
+  for(r in 1:Region_No){
+    urbpop=(0.031*(ypc[t,r]^0.5)-0.011*(popdens[t,r]^0.5))/((1+0.031*(ypc[t,r]^0.5)-0.011*(popdens[t,r]^0.5)));
+    urbpop[t,r]<<-urbpop/(1+(urbcorr[1,r]/(1+0.001*((t_value-40)^2))));
+  }
+  globalincome[t,1]<<-0;
+  globalpop[t,1]<<-0
+  for(r in 1:Region_No){
+    globalincome[t,1]<<-globalincome[t,1]+income[t,r];
+    globalpop[t,1]<<-globalpop[t,1]+population1[t,r];
+    globalypc[t,1]<<-globalincome[t,1]*1000000000/globalpop[t,1];
+  }
 }
 
 
@@ -349,6 +342,7 @@ ch4=matrix(0,nrow=TimeStep,ncol=16);
 ch4em=matrix(0,nrow=TimeStep,ncol=16);
 n2o=matrix(0,nrow=TimeStep,ncol=16);
 n2oem=matrix(0,nrow=TimeStep,ncol=16);
+#SO2_emission=matrix(0,nrow=TimeStep,ncol=16);
 sf6=matrix(0,nrow=TimeStep,ncol=16);
 energint=matrix(0,nrow=TimeStep,ncol=16);
 energuse=matrix(0,nrow=TimeStep,ncol=16);
@@ -419,7 +413,7 @@ for(r in 1:Region_No){
   energint[t0,r]=1;
   energuse[t0,r]=Best_Guess(datalist[[91]]$V2[r]);
   emissionint[t0,r]=Best_Guess(datalist[[79]]$V2[r]);
-  emission[t0,r]=emissionint[t0,r]/energuse[t0,r];
+  emission[t0,r]=emissionint[t0,r]*energuse[t0,r];
   ch4par1[t0,r]=Best_Guess(datalist[[33]]$V2[r]);
   ch4par2[t0,r]=Best_Guess(datalist[[34]]$V2[r]);
   n2opar1[t0,r]=Best_Guess(datalist[[129]]$V2[r]);
@@ -452,61 +446,142 @@ for(r in 1:Region_No){
 }
 sminint[t0,1]=0;
 #各温室气体排放情况
-EmissionComponent<-function(forestemm,pgrowth,ypcgrowth,income,population){
+EmissionComponent<-function(aeei,acei,forestemm,pgrowth,ypcgrowth,income,population){
   t=clock_Current(year_current);
   t_value=t-1;
-  
-  if(t_value>(2000-1950)){
-    cumaeei[t,]<<-cumaeei[t-1,]*(1-0.01*aeei[t,]-reei[t,]+seei[t-1,]-seei[t,]);
+  #计算碳强度和能源强度
+  for(r in 1:Region_No){
+    energint[t,r]<<-(1-0.01*aeei[t,r]-reei[t-1,r])*energint[t-1,r];
+    emissionint[t,r]<<-(1-0.01*acei[t,r]-rcei[t-1,r])*emissionint[t-1,r];
   }
-  else
-  {
-    cumaeei[t,]<<-1;
-  }
-  
-  # #计算碳强度和能源强度
-  energint[t,]<<-(1-0.01*aeei[t,]-reei[t-1,])*energint[t-1,];
-  emissionint[t,]<<-(1-0.01*acei[t,]-rcei[t-1,])*emissionint[t-1,];
   #计算sf6排放
-  #   sf6[t,]<<-(sf60[1,]+sf6gdp*(income[t,]-gdp90[1,])+sf6ypc*(income[t-1,]/population[t-1,]-gdp90[1,]/pop90[1,]))*ifelse(t_value<=60,1+(t_value-40)/40,1+(60-40)/40)*ifelse(t_value>60,0.99^(t_value-60),1);
-  # for(r in 1:Region_No){
-  #   if(sf6[t,r]<0)   sf6[t,r]<<-0;
-  # }
-  
-  energuse[t,]<<-(1-seei[t-1,])*energint[t,]*income[t,];
-  
-  # emission[t,]<<-(1-scei[t-1,])*emissionint[t,]*energuse[t,];
-  emissionwithforesty[t,]<<-emission[t,]+forestemm[t,];
-  
+  for(r in 1:Region_No){
+    sf6[t,r]<<-(sf60[1,r]+sf6gdp*(income[t,r]-gdp90[1,r])+sf6ypc*(income[t-1,r]/population[t-1,r]-gdp90[1,r]/pop90[1,r]))*ifelse(t_value<=60,1+(t_value-40)/40,1+(60-40)/40)*ifelse(t_value>60,0.99^(t_value-60),1);
+  }
+  for(r in 1:Region_No){
+    if(sf6[t,r]<0)   sf6[t,r]<<-0;
+  }
+  for(r in 1:Region_No){
+    energuse[t,r]<<-(1-seei[t-1,r])*energint[t,r]*income[t,r];
+  }
+  for(r in 1:Region_No){
+    emission[t,r]<<-(1-scei[t-1,r])*emissionint[t,r]*energuse[t,r];
+    emissionwithforesty[t,r]<<-emission[t,r]+forestemm[t,r];
+  }
   #计算CH4排放
-  # ch4[t,]<<-ch4em[t,];
+  for(r in 1:Region_No){
+    ch4[t,r]<<-ch4em[t,r]*(1-ch4red[t-1,r]);
+  }
   #计算N2O排放
-  # n2o[t,r]<<-n2oem[t,r];
-  
+  for(r in 1:Region_No){
+    n2o[t,r]<<-n2oem[t,r]*(1-n2ored[t-1,r]);
+  }
+  #进行反馈
+  for(r in 1:Region_No){
+    if(emission[t,r]/income[t,r]-sminint[t,1]<=0)
+    {
+      taxpar[t,r]<<-TaxConstant;
+    }
+    else{
+      taxpar[t,r]<<-TaxConstant-TaxEmInt*((emission[t,r]/income[t,r]-sminint[t,1])^0.5);
+    }
+  }
+  for(r in 1:Region_No){
+    co2red[t,r]<<-currtax[t,r]*emission[t,r]*know[t-1,r]*globknow[t-1]/2/taxpar[t,r]/income[t,r]/1000;
+    if(co2red[t,r]<0)    {co2red[t,r]<<-0;}
+    else if (co2red[t,r]>0.99)  {co2red[t,r]<<-0.99;}
+  }
+  for(r in 1:Region_No){
+    ryg[t,r]<<-taxpar[t,r]*(co2red[t,r]^2)/know[t-1,r]/globknow[t-1];
+  }
+  for(r in 1:Region_No){
+    perm[t,r]<<-1-1/TaxThreshold*currtax[t,r]/(1+1/TaxThreshold*currtax[t,r]);
+  }
+  for(r in 1:Region_No){
+    reei[t,r]<<-perm[t,r]*0.5*co2red[t,r];
+  }
+  for(r in 1:Region_No){
+    if(currtax[t,r]<TaxThreshold){
+      rcei[t,r]<<-perm[t,r]*0.5*(co2red[t,r]^2);
+    }
+    else {rcei[t,r]<<-perm[t,r]*0.5*co2red[t,r];}
+  }
+  for(r in 1:Region_No){
+    seei[t,r]<<-(1-TaxDepreciation)*seei[t-1,r]+(1-perm[t,r])*0.5*co2red[t,r]*1.7;
+  }
+  for(r in 1:Region_No){
+    if(currtax[t,r]<100){
+      scei[t,r]<<-0.9*scei[t-1,r]+(1-perm[t,r])*0.5*(co2red[t,r]^2);
+    }
+    else
+    {
+      scei[t,r]<<-0.9*scei[t-1,r]+(1-perm[t,r])*0.5*co2red[t,r]*1.7;
+    }
+  }
+  for(r in 1:Region_No){
+    know[t,r]<<-know[t-1,r]*((1+knowpar*co2red[t,r])^0.5);
+    if(know[t,r]>((MaxCostFall)^0.5))  {know[t,r]<<-(MaxCostFall)^0.5;};
+  }
+  globknow[t]<<-globknow[t-1];
+  for(r in 1:Region_No){
+    globknow[t]<<-globknow[t]*((1+knowgpar*co2red[t,r])^0.5);
+  }
+  if(globknow[t]>3.16)  {globknow[t]<<-3.16;}
+  for(r in 1:Region_No){
+    ch4red[t,r]<<-currtaxch4[t,r]*ch4em[t,r]/2/ch4par1[t0,r]/ch4par2[t0,r]/ch4par2[t0,r]/income[t,r]/1000;
+    if(ch4red[t,r]<0)  {ch4red[t,r]<<-0;}
+    else if (ch4red[t,r]>0.99)  {ch4red[t,r]<<-0.99;}
+  }
+  for(r in 1:Region_No){
+    n2ored[t,r]<<-gwpn2o*currtaxn2o[t,r]*n2oem[t,r]/2/n2opar1[t0,r]/n2opar2[t0,r]/n2opar2[t0,r]/income[t,r]/1000;
+    if(n2ored[t,r]<0)  {n2ored[t,r]<<-0;}
+    else if (n2ored[t,r]>0.99)  {n2ored[t,r]<<-0.99;}
+  }
+  for(r in 1:Region_No){
+    ch4cost[t,r]<<-ch4par1[t0,r]*(ch4par2[t0,r]^2)*(ch4red[t,r]^2);
+    ch4costindollars[t,r]<<-ch4cost[t,r]*income[t,r];
+  } 
+  for( r in 1:Region_No){
+    n2ocost[t,r]<<-n2opar1[t0,r]*(n2opar2[t0,r]^2)*(n2ored[t,r]^2);
+  }
+  minint=10^10;
+  for(r in 1:Region_No){
+    if(emission[t,r]/income[t,r]<minint){
+      minint=emission[t,r]/income[t,r];
+    }
+  }
+  sminint[t,1]<<-minint;
+  for( r in 1:Region_No){
+    if(t_value>(2000-1950)){
+      cumaeei[t,r]<<-cumaeei[t-1,r]*(1-0.01*aeei[t,r]-reei[t,r]+seei[t-1,r]-seei[t,r]);
+    }
+    else
+    {
+      cumaeei[t,r]<<-1;
+    }
+  }
+  for(r in 1:Region_No){
+    mitigationcost[t,r]<<-(taxmp[t0,r]*ryg[t,r]+n2ocost[t,r]*income[t,r]);
+  }
   s_globco2=0;
   s_globch4=0;
   s_globn2o=0;
   s_globsf6=0;
-  s_globco2=sum(emissionwithforesty[t,]);
-  s_globch4=sum(ch4[t,]);
-  s_globn2o=sum(n2o[t,]);
-  s_globsf6=sum(sf6[t,]);
-  
-  mco2[t]<<-s_globco2;
-  
-  #使非二氧化碳气体排放失去波动性，与耦合模型保持一致
-  # globch4[t,1]<<-max(0,s_globch4+ifelse(t_value>50,ch4add*(t_value-50),0));
-  # globn2o[t,1]<<-max(0,s_globn2o+ifelse(t_value>50,n2oadd*(t_value-50),0));
-  # globsf6[t,1]<<-max(0,s_globsf6+ifelse(t_value>50,sf6add*(t_value-50),0));
-  globch4[t]<<-max(0,s_globch4);
-  globn2o[t]<<-max(0,s_globn2o);
-  globsf6[t]<<-max(0,s_globsf6);
-  cumglobch4[t]<<-cumglobch4[t-1]+mco2[t];
-  cumglobco2[t]<<-cumglobco2[t-1]+globch4[t];
-  cumglobn2o[t]<<-cumglobn2o[t-1]+globn2o[t];
-  cumglobsf6[t]<<-cumglobsf6[t-1]+globsf6[t];
+  for(r in 1:Region_No){
+    s_globco2=s_globco2+emissionwithforesty[t,r];
+    s_globch4=s_globch4+ch4[t,r];
+    s_globn2o=s_globn2o+n2o[t,r];
+    s_globsf6=s_globsf6+sf6[t,r];
+  }
+  mco2[t,1]<<-s_globco2;
+  globch4[t,1]<<-max(0,s_globch4+ifelse(t_value>50,ch4add*(t_value-50),0));
+  globn2o[t,1]<<-max(0,s_globn2o+ifelse(t_value>50,n2oadd*(t_value-50),0));
+  globsf6[t,1]<<-max(0,s_globsf6+ifelse(t_value>50,sf6add*(t_value-50),0));
+  cumglobch4[t,1]<<-cumglobch4[t-1,1]+mco2[t,1];
+  cumglobco2[t,1]<<-cumglobco2[t-1,1]+globch4[t,1];
+  cumglobn2o[t,1]<<-cumglobn2o[t-1,1]+globn2o[t,1];
+  cumglobsf6[t,1]<<-cumglobsf6[t-1,1]+globsf6[t,1];
 }
-
 #计算CO2气体循环模式
 lifeco1=Best_Guess(datalist[[109]]$V1);
 lifeco2=Best_Guess(datalist[[110]]$V1);
@@ -533,7 +608,7 @@ cbox3=matrix(0,nrow=TimeStep,ncol=1);
 cbox4=matrix(0,nrow=TimeStep,ncol=1);
 cbox5=matrix(0,nrow=TimeStep,ncol=1);
 acco2=matrix(0,nrow=TimeStep,ncol=1);
-globc=matrix(NA,nrow=TimeStep,ncol=1);
+globc=matrix(0,nrow=TimeStep,ncol=1);
 TerrestrialCO2=matrix(0,nrow=TimeStep,ncol=1);
 TerrCO2Stock[t0,1]=Best_Guess(datalist[[171]]$V1);
 co2decay1=lifeco1;
@@ -546,27 +621,27 @@ cbox2[t0,1]=cbox20;
 cbox3[t0,1]=cbox30;
 cbox4[t0,1]=cbox40;
 cbox5[t0,1]=cbox50;
-acco2[t0]=cbox1[t0,1]+cbox2[t0,1]+cbox3[t0,1]+cbox4[t0,1]+cbox5[t0,1];
+acco2[t0,1]=cbox1[t0,1]+cbox2[t0,1]+cbox3[t0,1]+cbox4[t0,1]+cbox5[t0,1];
 ClimateCO2CycleComponent<-function(mco2,s_temp){
   t=clock_Current(year_current);
   t_value=t-1;
   if(t_value==(2011-1950)){
-    tempIn2010<<-s_temp[(2010-1950+1)];
+    tempIn2010<<-s_temp[(2010-1950+1),1];
   }
   if(t_value>(2010-1950)){
-    TerrestrialCO2[t]<<-(s_temp[t-1]-tempIn2010)*TerrCO2Sens*TerrCO2Stock[t-1]/TerrCO2Stock0;
+    TerrestrialCO2[t,1]<<-(s_temp[t-1,1]-tempIn2010)*TerrCO2Sens*TerrCO2Stock[t-1,1]/TerrCO2Stock0;
   }
   else{
-    TerrestrialCO2[t]<<-0;
+    TerrestrialCO2[t,1]<<-0;
   }
-  TerrCO2Stock[t]<<-max(TerrCO2Stock[t-1]-TerrestrialCO2[t],0);
-  globc[t]<<-mco2[t]+TerrestrialCO2[t];
-  cbox1[t]<<-cbox1[t-1]*co2decay1+0.000471*co2fra1*globc[t];
-  cbox2[t]<<-cbox2[t-1]*co2decay2+0.000471*co2fra2*globc[t];
-  cbox3[t]<<-cbox3[t-1]*co2decay3+0.000471*co2fra3*globc[t];
-  cbox4[t]<<-cbox4[t-1]*co2decay4+0.000471*co2fra4*globc[t];
-  cbox5[t]<<-cbox5[t-1]*co2decay5+0.000471*co2fra5*globc[t];
-  acco2[t]<<-cbox1[t]+cbox2[t]+cbox3[t]+cbox4[t]+cbox5[t];
+  TerrCO2Stock[t,1]<<-max(TerrCO2Stock[t-1,1]-TerrestrialCO2[t,1],0);
+  globc[t,1]<<-mco2[t,1]+TerrestrialCO2[t,1];
+  cbox1[t,1]<<-cbox1[t-1,1]*co2decay1+0.000471*co2fra1*globc[t,1];
+  cbox2[t,1]<<-cbox2[t-1,1]*co2decay2+0.000471*co2fra2*globc[t,1];
+  cbox3[t,1]<<-cbox3[t-1,1]*co2decay3+0.000471*co2fra3*globc[t,1];
+  cbox4[t,1]<<-cbox4[t-1,1]*co2decay4+0.000471*co2fra4*globc[t,1];
+  cbox5[t,1]<<-cbox5[t-1,1]*co2decay5+0.000471*co2fra5*globc[t,1];
+  acco2[t,1]<<-cbox1[t,1]+cbox2[t,1]+cbox3[t,1]+cbox4[t,1]+cbox5[t,1];
 }
 #计算CH4循环模式
 lifech4=Best_Guess(datalist[[108]]$V1);
@@ -576,8 +651,8 @@ ch4decay=1/lifech4;
 acch4[t0,1]=1222;
 ClimateCH4CycleComponent<-function(globch4){
   t=clock_Current(year_current);
-  acch4[t]<<-acch4[t-1]+0.3597*globch4[t]-ch4decay*(acch4[t-1]-ch4pre);
-  if(acch4[t]<0){
+  acch4[t,1]<<-acch4[t-1,1]+0.3597*globch4[t,1]-ch4decay*(acch4[t-1,1]-ch4pre);
+  if(acch4[t,1]<0){
     print("CH4浓度超出范围");
   }
 }
@@ -589,8 +664,8 @@ n2odecay=1/lifen2o;
 acn2o[t0,1]=296;
 ClimateN2OCycleComponent<-function(globn2o){
   t=clock_Current(year_current);
-  acn2o[t]<<-acn2o[t-1]+0.2079*globn2o[t]-n2odecay*(acn2o[t-1]-n2opre);
-  if(acn2o[t]<0){
+  acn2o[t,1]<<-acn2o[t-1,1]+0.2079*globn2o[t,1]-n2odecay*(acn2o[t-1,1]-n2opre);
+  if(acn2o[t,1]<0){
     print("N2O浓度超出范围");
   }
 }
@@ -602,8 +677,8 @@ sf6decay=1/lifesf6;
 acsf6[t0,1]=sf6pre;
 ClimateSF6CycleComponent<-function(globsf6){
   t=clock_Current(year_current);
-  acsf6[t]<<-sf6pre+(acsf6[t-1]-sf6pre)*(1-sf6decay)+globsf6[t]/25.1;
-  if(acsf6[t]<0){
+  acsf6[t,1]<<-sf6pre+(acsf6[t-1,1]-sf6pre)*(1-sf6decay)+globsf6[t,1]/25.1;
+  if(acsf6[t,1]<0){
     print("SF6浓度超出范围");
   }
 }
@@ -618,9 +693,9 @@ ch4ind=Best_Guess(datalist[[32]]$V1);
 co2pre=Best_Guess(datalist[[46]]$V1);
 ch4pre=Best_Guess(datalist[[35]]$V1);
 rfSO2=matrix(0,nrow=TimeStep,ncol=1);
-# for(t in 1:TimeStep){
-#   rfSO2[t]=Best_Guess(datalist[[141]]$V2[t]);
-# }
+for(t in 1:TimeStep){
+  rfSO2[t,1]=Best_Guess(datalist[[141]]$V2[t]);
+}
 Interact<-function(M,N){
   d=1+((M*N)^0.75)*2.01*10^(-5)+((M*N)^1.52)*M*5.31*10^(-15);
   return(0.47*log(d));
@@ -628,30 +703,26 @@ Interact<-function(M,N){
 ClimateForcingComponent<-function(acco2,acch4,acn2o,acsf6){
   t=clock_Current(year_current);
   ch4n2o=Interact(ch4pre,n2opre);
-  rfCO2[t]<<-5.35*log(acco2[t]/co2pre);
-  rfCH4[t]<<-0.036*(1+ch4ind)*(acch4[t]^0.5-ch4pre^0.5)-Interact(acch4[t],n2opre)+ch4n2o;
-  rfN2O[t]<<-0.12*(acn2o[t]^0.5-n2opre^0.5)-Interact(ch4pre,acn2o[t])+ch4n2o;
-  rfSF6[t]<<-0.00052*(acsf6[t]-sf6pre);
-  radforc[t]<<-rfCO2[t]+rfCH4[t]+rfN2O[t]+rfSF6[t]+rfSO2[t];
-  rfEMF22[t]<<-rfCO2[t]+rfCH4[t]+rfN2O[t];
+  rfCO2[t,1]<<-5.35*log(acco2[t,1]/co2pre);
+  rfCH4[t,1]<<-0.036*(1+ch4ind)*(acch4[t,1]^0.5-ch4pre^0.5)-Interact(acch4[t,1],n2opre)+ch4n2o;
+  rfN2O[t,1]<<-0.12*(acn2o[t,1]^0.5-n2opre^0.5)-Interact(ch4pre,acn2o[t,1])+ch4n2o;
+  rfSF6[t,1]<<-0.00052*(acsf6[t,1]-sf6pre);
+  radforc[t,1]<<-rfCO2[t,1]+rfCH4[t,1]+rfN2O[t,1]+rfSF6[t,1]+rfSO2[t,1];
+  rfEMF22[t,1]<<-rfCO2[t,1]+rfCH4[t,1]+rfN2O[t,1];
 }
-
 #计算气候变化导致的温升效应
 s_temp=matrix(0,nrow=TimeStep,ncol=1);
 LifeTempConst=Best_Guess(datalist[[117]]$V1);
+ClimateSensitivity=Best_Guess(datalist[[40]]$V1);
 LifeTempLin=Best_Guess(datalist[[118]]$V1);
 LifeTempQd=Best_Guess(datalist[[119]]$V1);
-ClimateSensitivity = Best_Guess(datalist[[40]]$V1);
-s_temp[t0]=0.2;
+s_temp[t0,1]=0.2;
 ClimateDynamicComponent<-function(radforc){
   LifeTemp<<-max(LifeTempConst+LifeTempLin*ClimateSensitivity+LifeTempQd*(ClimateSensitivity^2),1);
   delaytemp<<-1/LifeTemp;
   temps<<-ClimateSensitivity/5.35/log(2);
-  dtemp<<-delaytemp*temps*radforc[t]-delaytemp*s_temp[t-1];
-  s_temp[t]<<-s_temp[t-1]+dtemp;
-  if(s_temp[t]<=0){
-    s_temp[t]<<-0.02;
-  }
+  dtemp<<-delaytemp*temps*radforc[t,1]-delaytemp*s_temp[t-1,1];
+  s_temp[t,1]<<-s_temp[t-1,1]+dtemp;
 }
 #计算气候变化的各地的温升影响
 bregstemp=matrix(0,nrow=1,ncol=Region_No);
@@ -661,7 +732,6 @@ for(r in 1:Region_No){
   bregstemp[1,r]=Best_Guess(datalist[[15]]$V2[r]);
   bregtemp[1,r]=Best_Guess(datalist[[16]]$V2[r]);
 }
-
 for(t in 1:TimeStep){
   for(r in 1:Region_No){
     scentemp[t,r]=Best_Guess(datalist[[149]]$V3[(t-1)*Region_No+r]);
@@ -675,21 +745,26 @@ regtemp=matrix(0,nrow=TimeStep,ncol=Region_No);
 regstemp=matrix(0,nrow=TimeStep,ncol=Region_No);
 ClimateRegionComponent<-function(s_temp){
   t=clock_Current(year_current);
-  regtemp[t,]<<-s_temp[t]*bregtemp[1,]+scentemp[t,];
-  temp[t,]<<-regtemp[t,]/bregtemp[1,];
-  regstemp[t,]<<-s_temp[t]*bregstemp[1,]+scentemp[t,];
+  for(r in 1:Region_No){
+    regtemp[t,r]<<-s_temp[t,1]*bregtemp[1,r]+scentemp[t,r];
+  }
+  for(r in 1:Region_No){
+    temp[t,r]<<-regtemp[t,r]/bregtemp[1,r];
+  }
+  for(r in 1:Region_No){
+    regstemp[t,r]<<-s_temp[t,1]*bregstemp[1,r]+scentemp[t,r];
+  }
 }
-
 #计算海洋
 lifesea=Best_Guess(datalist[[115]]$V1);
 sea=matrix(0,nrow=TimeStep,ncol=1);
 seas=Best_Guess(datalist[[151]]$V1);
 delaysea=1/lifesea;
-sea[t0]=0;
+sea[t0,1]=0;
 OceanComponent<-function(s_temp){
   t=clock_Current(year_current);
-  ds=delaysea*seas*s_temp[t]-delaysea*sea[t-1];
-  sea[t]<<-sea[t-1]+ds;
+  ds=delaysea*seas*s_temp[t,1]-delaysea*sea[t-1,1];
+  sea[t,1]<<-sea[t-1,1]+ds;
 }
 
 #计算生物多样性
@@ -703,14 +778,13 @@ BioDiversityComponent<-function(s_temp){
   t=clock_Current(year_current);
   t_value=t-1;
   if(t_value>(2000-1950)){
-    dt=abs(s_temp[t]-s_temp[t-1]);
-    nospieces[t]<<-max(nospacebase/100,nospieces[t-1]*(1-bioloss-biosens*dt*dt/dbsta/dbsta));
+    dt=abs(s_temp[t,1]-s_temp[t-1,1]);
+    nospieces[t,1]<<-max(nospacebase/100,nospieces[t-1,1]*(1-bioloss-biosens*dt*dt/dbsta/dbsta));
   }
   else{
-    nospieces[t]<<-nospacebase;
+    nospieces[t,1]<<-nospacebase;
   }
 }
-
 #计算对生物多样性影响
 bioshare=Best_Guess(datalist[[14]]$V1);
 spbm=Best_Guess(datalist[[163]]$V1);
@@ -723,11 +797,13 @@ for(r in 1:Region_No){
 }
 ImpactBiodiversityComponent<-function(temp,nospieces,income,population){
   t=clock_Current(year_current);
-  biodiv[t]<<-nospacebase/nospieces[t];
-  s_ypc=1000*income[t,]/population[t,];
-  dt=abs(temp[t,]-temp[t-1,]);
-  valadj=valbase/valinc[1,]/(1+valbase/valinc[1,]);
-  species[t,]<<-spbm/valbase*s_ypc/valinc[1,]/(1+s_ypc/valinc[1,])/valadj*s_ypc*population[t,]/1000*dt/dbsta/(1+dt/dbsta)*(1-bioshare+bioshare*biodiv[t,1]);
+  biodiv[t,1]<<-nospacebase/nospieces[t,1];
+  for(r in 1:Region_No){
+    s_ypc=1000*income[t,r]/population[t,r];
+    dt=abs(temp[t,r]-temp[t-1,r]);
+    valadj=valbase/valinc[1,r]/(1+valbase/valinc[1,r]);
+    species[t,r]<<-spbm/valbase*s_ypc/valinc[1,r]/(1+s_ypc/valinc[1,r])/valadj*s_ypc*population[t,r]/1000*dt/dbsta/(1+dt/dbsta)*(1-bioshare+bioshare*biodiv[t,1]);
+  }
 }
 
 #热影响
@@ -739,9 +815,11 @@ for(r in 1:Region_No){
 heel=Best_Guess(datalist[[96]]$V1);
 ImpactHeatingComponent<-function(temp,population,income,cumaeei){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  heating[t,]<<-hebm[1,]*cumaeei[t,]*gdp90[1,]*atan(temp[t,])/atan(1)*((ypc/ypc90)^heel)*population[t,]/pop90[1,];
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    heating[t,r]<<-hebm[1,r]*cumaeei[t,r]*gdp90[1,r]*atan(temp[t,r])/atan(1)*((ypc/ypc90)^heel)*population[t,r]/pop90[1,r];
+  }
 }
 #冷影响
 cooling=matrix(0,nrow=TimeStep,ncol=Region_No);
@@ -753,11 +831,12 @@ for(r in 1:Region_No){
 }
 ImpactCoolingComponent<-function(population,income,temp,cumaeei){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  cooling[t,]<<-cebm[1,]*cumaeei[t,]*gdp90[1,]*(temp[t,]^cenl)*((ypc/ypc90)^ceel)*population[t,]/pop90[1,];
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    cooling[t,r]<<-cebm[1,r]*cumaeei[t,r]*gdp90[1,r]*(temp[t,r]^cenl)*((ypc/ypc90)^ceel)*population[t,r]/pop90[1,r];
+  }
 }
-
 #计算对农业部门影响
 DBsT=0.04;
 agrbm=matrix(0,nrow=1,ncol=Region_No);
@@ -770,6 +849,9 @@ agrish0=matrix(0,nrow=1,ncol=Region_No);
 aglevel=matrix(0,nrow=TimeStep,ncol=Region_No);
 agco2=matrix(0,nrow=TimeStep,ncol=Region_No);
 agcost=matrix(0,nrow=TimeStep,ncol=Region_No);
+agcost_1=matrix(0,nrow=TimeStep,ncol=Region_No);
+agcost_2=matrix(0,nrow=TimeStep,ncol=Region_No);
+agcost_3=matrix(0,nrow=TimeStep,ncol=Region_No);
 aglpar1=matrix(0,nrow=1,ncol=Region_No);
 aglparq=matrix(0,nrow=1,ncol=Region_No);
 agcbm=matrix(0,nrow=1,ncol=Region_No);
@@ -784,15 +866,25 @@ for(r in 1:Region_No){
 }
 ImpactAgricultureComponent<-function(population,income,temp,acco2){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  agrish[t,]<<-agrish0[1,]*((ypc/ypc90)^(-agel));
-  dtemp=abs(temp[t,r]-temp[t-1,r]);
-  if(is.nan((dtemp/0.04)^agnl)==TRUE)  {agrate[t,]<<-0;}
-  else {agrate[t,]<<-agrbm[1,]*((dtemp/0.04)^agnl)+(1-1/agtime[1,])*agrate[t-1,]};
-  aglevel[t,]<<-aglpar1[1,]*temp[t,]+aglparq[1,]*(temp[t,]^2);
-  agco2[t,]<<-agcbm[1,]/log(2)*log(acco2[t-1]/co2pre);
-  agcost[t,]<<-ifelse(agrate[t,]+aglevel[t,]+agco2[t,]>1,1,agrate[t,]+aglevel[t,]+agco2[t,])*agrish[t,]*income[t,];
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    agrish[t,r]<<-agrish0[1,r]*((ypc/ypc90)^(-agel));
+  }
+  for(r in 1:Region_No){
+    dtemp=abs(temp[t,r]-temp[t-1,r]);
+    if(is.nan((dtemp/0.04)^agnl)==TRUE)  {agrate[t,r]<<-0;}
+    else {agrate[t,r]<<-agrbm[1,r]*((dtemp/0.04)^agnl)+(1-1/agtime[1,r])*agrate[t-1,r]};
+  }
+  for(r in 1:Region_No){
+    aglevel[t,r]<<-aglpar1[1,r]*temp[t,r]+aglparq[1,r]*(temp[t,r]^2);
+  }
+  for(r in 1:Region_No){
+    agco2[t,r]<<-agcbm[1,r]/log(2)*log(acco2[t-1,1]/co2pre);
+  }
+  for(r in 1:Region_No){
+    agcost[t,r]<<-min(1,agrate[t,r]+aglevel[t,r]+agco2[t,r])*agrish[t,r]*income[t,r];
+  }
 }
 
 #对水资源的影响
@@ -811,17 +903,23 @@ ImpactWaterResourceComponent<-function(population,income,temp){
   t=clock_Current(year_current);
   t_value=t-1;
   if(t_value>(2000-1950)){
-    watech[t]<<-(1-watechrate)^(t_value-(2000-1950));
+    watech[t,1]<<-(1-watechrate)^(t_value-(2000-1950));
   }
   else{
-    watech[t]<<-1;
+    watech[t,1]<<-1;
   }
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  s_water=wrbm[1,]*gdp90[1,]*watech[t]*((ypc/ypc90)^wrel)*((population[t,]/pop90[1,])^wrpl)*(temp[t,]^wrnl);
-  water[t,]<<- ifelse(s_water>0.1*income[t,],0.1*income[t,r],s_water);
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    s_water=wrbm[1,r]*gdp90[1,r]*watech[t,1]*((ypc/ypc90)^wrel)*((population[t,r]/pop90[1,r])^wrpl)*(temp[t,r]^wrnl);
+    if(s_water>0.1*income[t,r]){
+      water[t,r]<<-0.1*income[t,r];
+    }
+    else{
+      water[t,r]<<-s_water;
+    }
+  }
 }
-
 #对疟疾发病率的影响
 diadead=matrix(0,nrow=TimeStep,ncol=Region_No);
 diasick=matrix(0,nrow=TimeStep,ncol=Region_No);
@@ -839,13 +937,20 @@ for(r in 1:Region_No){
 }
 ImpactDiarrhoeaComponent<-function(population,income,regtemp){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  absoluteRegionalTemPreIndustrial=temp90-0.49*bregtemp[1,];
-  diadead[t,] <<- ifelse(absoluteRegionalTemPreIndustrial>0,diamort[1,]*population[t,]*((ypc/ypc90)^diamortel)*(((absoluteRegionalTemPreIndustrial+regtemp[t,])/absoluteRegionalTemPreIndustrial)^diamortnl-1),0);
-  diasick[t,] <<- ifelse(absoluteRegionalTemPreIndustrial>0,diayld[1,]*population[t,]*((ypc/ypc90)^diayldel)*(((absoluteRegionalTemPreIndustrial+regtemp[t,])/absoluteRegionalTemPreIndustrial)^diayldnl-1),0);
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    absoluteRegionalTemPreIndustrial=temp90[r]-0.49*bregtemp[1,r];
+    if(absoluteRegionalTemPreIndustrial>0){
+      diadead[t,r]<<-diamort[1,r]*population[t,r]*((ypc/ypc90)^diamortel)*(((absoluteRegionalTemPreIndustrial+regtemp[t,r])/absoluteRegionalTemPreIndustrial)^diamortnl-1);
+      diasick[t,r]<<-diayld[1,r]*population[t,r]*((ypc/ypc90)^diayldel)*(((absoluteRegionalTemPreIndustrial+regtemp[t,r])/absoluteRegionalTemPreIndustrial)^diayldnl-1);
+    }
+    else{
+      diadead[t,r]<<-0;
+      diasick[t,r]<<-0;
+    }
+  }
 }
-
 #计算普通热带风暴天气的影响
 hurrdam=matrix(0,nrow=TimeStep,ncol=Region_No);
 hurrdead=matrix(0,nrow=TimeStep,ncol=Region_No);
@@ -861,10 +966,12 @@ hurrdamel=Best_Guess(datalist[[100]]$V1);
 hurrnl=Best_Guess(datalist[[102]]$V1);
 ImpactTropicalStromComponent<-function(population,income,acco2){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  hurrdam[t,]<<-0.001*hurrbasedam[1,]*income[t,]*((ypc/ypc90)^hurrdamel)*(((1+hurrpar*regstemp[t,])^hurrnl)-1);
-  hurrdead[t,]<<-1000*hurrbasedead[1,]*population[t,]*((ypc/ypc90)^hurrdeadel)*(((1+hurrpar*regstemp[t,])^hurrnl)-1);
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    hurrdam[t,r]<<-0.001*hurrbasedam[1,r]*income[t,r]*((ypc/ypc90)^hurrdamel)*(((1+hurrpar*regstemp[t,r])^hurrnl)-1);
+    hurrdead[t,r]<<-1000*hurrbasedead[1,r]*population[t,r]*((ypc/ypc90)^hurrdeadel)*(((1+hurrpar*regstemp[t,r])^hurrnl)-1);
+  }
 }
 
 #计算极端风暴天气的影响
@@ -883,12 +990,13 @@ for(r in 1:Region_No){
 }
 ImpactExtratropicalStormsComponent<-function(population,income,acco2){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  extratropicalstormsdam[t,]<<-extratropicalstormsbasedam[1,]*income[t,]*((ypc/ypc90)^extratropicalstormsdamel)*(((1+extratropicalstormspar[1,]*(acco2[t]/co2pre))^extratropicalstormsnl-1));
-  extratropicalstormsdead[t,]<<-1000*extratropicalstormsbasedead[1,]*population[t,]*((ypc/ypc90)^extratropicalstormsdeadel)*(((1+extratropicalstormspar[1,]*(acco2[t]/co2pre))^extratropicalstormsnl-1));                                                                                                              
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    extratropicalstormsdam[t,r]<<-extratropicalstormsbasedam[1,r]*income[t,r]*((ypc/ypc90)^extratropicalstormsdamel)*(((1+extratropicalstormspar[1,r]*(acco2[t,1]/co2pre))^extratropicalstormsnl-1));
+    extratropicalstormsdead[t,r]<<-1000*extratropicalstormsbasedead[1,r]*population[t,r]*((ypc/ypc90)^extratropicalstormsdeadel)*(((1+extratropicalstormspar[1,r]*(acco2[t,1]/co2pre))^extratropicalstormsnl-1));                                                                                                              
+  }
 }
-
 #计算对海平面上升的影响
 migrate=matrix(0,nrow=Region_No,ncol=Region_No);
 imigrate=matrix(0,nrow=Region_No,ncol=Region_No);
@@ -964,55 +1072,114 @@ for(r1 in 1:Region_No){
 ImpactSeaLevelRiseComponent<-function(population,income,sea,Area){
   t=clock_Current(year_current);
   t_value=t-1;
-  ds=sea[t]-sea[t-1];
-  ypc=income[t,]/population[t,]*1000;
-  ypcprev=income[t-1,]/population[t-1,]*1000;
-  ypcgrowth=ypc/ypcprev-1;
-  if(t_value==(1951-1950)) {ypcgrowth=0;}
-  
-  incomedens=income[t,]/Area[t,];
-  incomedensprev=income[t-1,]/Area[t-1,];
-  incomedensgrowth=incomedens/incomedensprev-1;
-  
-  popdens=population[t,]/Area[t,]*1000000;
-  popdensprev=population[t-1,]/Area[t-1,]*1000000;
-  popdensgrowth=popdens/popdensprev-1;
-  
-  dryval[t,]<<-dvbm*((incomedens/incdens)^dvydl);
-  
-  wetval[t,]<<-wvbm*((ypc/slrwvypc0)^wvel)*((popdens/slrwvpopdens0)^wvpdl)*(((wetland90[1,]-cumwetlandloss[t-1,])/wetland90[1,])^wvsl);
-  potCumLandloss=ifelse(maxlandloss[1,]>(dlbm[1,]*((sea[t])^drylandlossparam[1,])),(dlbm[1,]*((sea[t])^drylandlossparam[1,])),maxlandloss[1,]);
-  potLandloss=potCumLandloss-cumlandloss[t-1,];
-  
-  npprotcost[t,] <<- ifelse(ds<0 | (1+slrprtp[1,]+ypcgrowth)<0 |(1+dvydl*incomedensgrowth)<0 | (1/(1+slrprtp[1,]+ypcgrowth))>=1 | ((1+dvydl*incomedensgrowth)/(1+slrprtp[1,]+ypcgrowth))>=1 |((1+wvel*ypcgrowth+wvpdl*popdensgrowth+wvsl*wetlandgrowth[t-1,])/(1+slrprtp[1,]+ypcgrowth))>=1,0,pc[1,]*ds*(1+slrprtp[1,]+ypcgrowth)/(slrprtp[1,]+ypcgrowth));
-  npwetcost[t,] <<- ifelse(ds<0 | (1+slrprtp[1,]+ypcgrowth)<0 |(1+dvydl*incomedensgrowth)<0 | (1/(1+slrprtp[1,]+ypcgrowth))>=1 | ((1+dvydl*incomedensgrowth)/(1+slrprtp[1,]+ypcgrowth))>=1 |((1+wvel*ypcgrowth+wvpdl*popdensgrowth+wvsl*wetlandgrowth[t-1,])/(1+slrprtp[1,]+ypcgrowth))>=1 | (1+wvel*ypcgrowth+wvpdl*popdensgrowth+wvsl*wetlandgrowth[t-1,])<0,0,wmbm[1,]*ds*wetval[t,]*(1+slrprtp[1,]+ypcgrowth)/(slrprtp[1,]+ypcgrowth-wvel*ypcgrowth-wvpdl*popdensgrowth-wvsl*wetlandgrowth[t-1,]));
-  npdrycost[t,] <<- ifelse(ds<0 | (1+slrprtp[1,]+ypcgrowth)<0 |(1+dvydl*incomedensgrowth)<0 | (1/(1+slrprtp[1,]+ypcgrowth))>=1 | ((1+dvydl*incomedensgrowth)/(1+slrprtp[1,]+ypcgrowth))>=1 |((1+wvel*ypcgrowth+wvpdl*popdensgrowth+wvsl*wetlandgrowth[t-1,])/(1+slrprtp[1,]+ypcgrowth))>=1 | (1+dvydl*incomedensgrowth)<0,0,potLandloss*dryval[t,]*(1+slrprtp[1,]+ypcgrowth)/(slrprtp[1,]+ypcgrowth-dvydl*incomedensgrowth));
-  protlev[t,] <<- ifelse(ds<0 | (1+slrprtp[1,]+ypcgrowth)<0 |(1+dvydl*incomedensgrowth)<0 | (1/(1+slrprtp[1,]+ypcgrowth))>=1 | ((1+dvydl*incomedensgrowth)/(1+slrprtp[1,]+ypcgrowth))>=1 |((1+wvel*ypcgrowth+wvpdl*popdensgrowth+wvsl*wetlandgrowth[t-1,])/(1+slrprtp[1,]+ypcgrowth))>=1 | (1-0.5*((npprotcost[t,]+npwetcost[t,])/npdrycost[t,]))<0,0,(1-0.5*((npprotcost[t,]+npwetcost[t,])/npdrycost[t,])));
-  
-  wetlandloss[t,]<<-ifelse((wlbm[1,]*ds+protlev[t,]*wmbm[1,]*ds)>(wetmax[1,]-cumwetlandloss[t-1,]),(wetmax[1,]-cumwetlandloss[t-1,]),(wlbm[1,]*ds+protlev[t,]*wmbm[1,]*ds));
-  cumwetlandloss[t,]<<-cumwetlandloss[t-1,]+wetlandloss[t,];
-  wetlandgrowth[t,]<<-(wetland90[1,]-cumwetlandloss[t,])/(wetland90[1,]-cumwetlandloss[t-1,])-1;
-  wetcost[t,]<<-wetval[t,]*wetlandloss[t,];
-  landloss[t,]<<-(1-protlev[t,])*potLandloss;
-  cumlandloss[t,]<<-cumlandloss[t-1,]+landloss[t,];
-  drycost[t,]<<-dryval[t,]*landloss[t,];
-  protcost[t,]<<-protlev[t,]*pc[1,]*ds;
-  
-  leave[t,] <<- ifelse(landloss[t,]<0,0,coastpd[1,]*popdens*landloss[t,]);
-  leavecost[t,]<<-emcst*ypc*leave[t,]/1000000000;
-  
-  for(destination in 1:Region_No){
-    s_enter=0;
-    for(source in 1:Region_No){
-      s_enter=s_enter+leave[t,source]*imigrate[source,destination];
+  ds=sea[t,1]-sea[t-1,1];
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypcprev=income[t-1,r]/population[t-1,r]*1000;
+    ypcgrowth=ypc/ypcprev-1;
+    if(t_value==(1951-1950)){
+      ypcgrowth=0;
     }
-    enter[t,destination]<<-s_enter;
+    
+    incomedens=income[t,r]/Area[t,r];
+    incomedensprev=income[t-1,r]/Area[t-1,r];
+    incomedensgrowth=incomedens/incomedensprev-1;
+    
+    popdens=population[t,r]/Area[t,r]*1000000;
+    popdensprev=population[t-1,r]/Area[t-1,r]*1000000;
+    popdensgrowth=popdens/popdensprev-1;
+    
+    dryval[t,r]<<-dvbm*((incomedens/incdens)^dvydl);
+    
+    wetval[t,r]<<-wvbm*((ypc/slrwvypc0)^wvel)*((popdens/slrwvpopdens0)^wvpdl)*(((wetland90[1,r]-cumwetlandloss[t-1,r])/wetland90[1,r])^wvsl);
+    potCumLandloss=min(maxlandloss[1,r],dlbm[1,r]*((sea[t,1])^drylandlossparam[1,r]));
+    potLandloss=potCumLandloss-cumlandloss[t-1,r];
+    
+    if(ds<0){
+      npprotcost[t,r]<<-0;
+      npwetcost[t,r]<<-0;
+      npdrycost[t,r]<<-0;
+      protlev[t,r]<<-0;
+    }
+    else if((1+slrprtp[1,r]+ypcgrowth)<0){
+      npprotcost[t,r]<<-0;
+      npwetcost[t,r]<<-0;
+      npdrycost[t,r]<<-0;
+      protlev[t,r]<<-0;
+    }
+    else if((1+dvydl*incomedensgrowth)<0){
+      npprotcost[t,r]<<-0;
+      npwetcost[t,r]<<-0;
+      npdrycost[t,r]<<-0;
+      protlev[t,r]<<-0;
+    }
+    
+    else if((1/(1+slrprtp[1,r]+ypcgrowth))>=1){
+      npprotcost[t,r]<<-0;
+      npwetcost[t,r]<<-0;
+      npdrycost[t,r]<<-0;
+      protlev[t,r]<<-0;
+    }
+    else if(((1+dvydl*incomedensgrowth)/(1+slrprtp[1,r]+ypcgrowth))>=1){
+      npprotcost[t,r]<<-0;
+      npwetcost[t,r]<<-0;
+      npdrycost[t,r]<<-0;
+      protlev[t,r]<<-1;
+    }
+    else if(((1+wvel*ypcgrowth+wvpdl*popdensgrowth+wvsl*wetlandgrowth[t-1,r])/(1+slrprtp[1,r]+ypcgrowth))>=1){
+      npprotcost[t,r]<<-0;
+      npwetcost[t,r]<<-0;
+      npdrycost[t,r]<<-0;
+      protlev[t,r]<<-0;
+    }
+    else{
+      npprotcost[t,r]<<-pc[1,r]*ds*(1+slrprtp[1,r]+ypcgrowth)/(slrprtp[1,r]+ypcgrowth);
+      
+      if((1+wvel*ypcgrowth+wvpdl*popdensgrowth+wvsl*wetlandgrowth[t-1,r])<0){
+        npwetcost[t,r]<<-0;
+      }
+      else{
+        npwetcost[t,r]<<-wmbm[1,r]*ds*wetval[t,r]*(1+slrprtp[1,r]+ypcgrowth)/(slrprtp[1,r]+ypcgrowth-wvel*ypcgrowth-wvpdl*popdensgrowth-wvsl*wetlandgrowth[t-1,r]);
+      }
+      if((1+dvydl*incomedensgrowth)<0){
+        npdrycost[t,r]<<-0;
+      }
+      else{
+        npdrycost[t,r]<<-potLandloss*dryval[t,r]*(1+slrprtp[1,r]+ypcgrowth)/(slrprtp[1,r]+ypcgrowth-dvydl*incomedensgrowth);
+      }
+      protlev[t,r]<<-max(0,(1-0.5*((npprotcost[t,r]+npwetcost[t,r])/npdrycost[t,r])));
+      if(protlev[t,r]>1){
+        print("protlevel不应该大于1");
+      }
+    }
+    wetlandloss[t,r]<<-min(wlbm[1,r]*ds+protlev[t,r]*wmbm[1,r]*ds,wetmax[1,r]-cumwetlandloss[t-1,r]);
+    cumwetlandloss[t,r]<<-cumwetlandloss[t-1,r]+wetlandloss[t,r];
+    wetlandgrowth[t,r]<<-(wetland90[1,r]-cumwetlandloss[t,r])/(wetland90[1,r]-cumwetlandloss[t-1,r])-1;
+    wetcost[t,r]<<-wetval[t,r]*wetlandloss[t,r];
+    landloss[t,r]<<-(1-protlev[t,r])*potLandloss;
+    cumlandloss[t,r]<<-cumlandloss[t-1,r]+landloss[t,r];
+    drycost[t,r]<<-dryval[t,r]*landloss[t,r];
+    protcost[t,r]<<-protlev[t,r]*pc[1,r]*ds;
+    if(landloss[t,r]<0){
+      leave[t,r]<<-0;
+    }
+    else{
+      leave[t,r]<<-coastpd[1,r]*popdens*landloss[t,r];
+      leavecost[t,r]<<-emcst*ypc*leave[t,r]/1000000000;
+    }
+    for(destination in 1:Region_No){
+      s_enter=0;
+      for(source in 1:Region_No){
+        s_enter=s_enter+leave[t,source]*imigrate[source,destination];
+      }
+      enter[t,destination]<<-s_enter;
+    }
+    for(r in 1:Region_No){
+      ypc=income[t,r]/population[t,r]*1000;
+      entercost[t,r]<<-immcst*ypc*enter[t,r]/1000000000;
+    }
   }
-  
-  ypc=income[t,]/population[t,]*1000;
-  entercost[t,]<<-immcst*ypc*enter[t,]/1000000000;
 }
-
 #对森林的影响
 forests=matrix(0,nrow=TimeStep,ncol=Region_No);
 forbm=matrix(0,nrow=1,ncol=Region_No);
@@ -1024,12 +1191,15 @@ for(r in 1:Region_No){
 }
 ImpactForests<-function(population,income,temp,acco2){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  forests[t,]<<-forbm[1,]*income[t,]*((ypc/ypc90)^forel)*(0.5*(temp[t,]^fornl)+0.5*log(acco2[t-1]/co2pre)*forco2);
-  forests[t,]<<-ifelse(forests[t,]>0.1*income[t,],0.1*income[t,],forests[t,]);
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    forests[t,r]<<-forbm[1,r]*income[t,r]*((ypc/ypc90)^forel)*(0.5*(temp[t,r]^fornl)+0.5*log(acco2[t-1,1]/co2pre)*forco2);
+    if(forests[t,r]>0.1*income[t,r]){
+      forests[t,r]=0.1*income[t,r];
+    }
+  }
 }
-
 #计算对疾病的影响
 dengue=matrix(0,nrow=TimeStep,ncol=Region_No);
 schisto=matrix(0,nrow=TimeStep,ncol=Region_No);
@@ -1054,12 +1224,16 @@ smnl=Best_Guess(datalist[[162]]$V1);
 malnl=Best_Guess(datalist[[122]]$V1);
 ImpactVectorBornelDiseases<-function(population,temp,income){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  ypc90=gdp90[1,]/pop90[1,]*1000;
-  dengue[t,]<<-dfbs[1,]*population[t,]*dfch[1,]*(temp[t,]^dfnl)*((ypc/ypc90)^vbel);
-  schisto[t,]<<-smbs[1,]*population[t,]*smch[1,]*(temp[t,]^smnl)*((ypc/ypc90)^vbel);
-  schisto[t,]<<-ifelse(schisto[t,]<(0-smbs[1,]*population[t,]*((ypc/ypc90)^vbel)),(0-smbs[1,]*population[t,]*((ypc/ypc90)^vbel)),schisto[t,])
-  malaria[t,]<<-malbs[1,]*population[t,]*malch[1,]*(temp[t,]^malnl)*((ypc/ypc90)^vbel);
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    ypc90=gdp90[1,r]/pop90[1,r]*1000;
+    dengue[t,r]<<-dfbs[1,r]*population[t,r]*dfch[1,r]*(temp[t,r]^dfnl)*((ypc/ypc90)^vbel);
+    schisto[t,r]<<-smbs[1,r]*population[t,r]*smch[1,r]*(temp[t,r]^smnl)*((ypc/ypc90)^vbel);
+    if(schisto[t,r]<(0-smbs[1,r]*population[t,r]*((ypc/ypc90)^vbel))){
+      schisto[t,r]<<-0-smbs[1,r]*population[t,r]*((ypc/ypc90)^vbel);
+    }
+    malaria[t,r]<<-malbs[1,r]*population[t,r]*malch[1,r]*(temp[t,r]^malnl)*((ypc/ypc90)^vbel);
+  }
 }
 
 #计算对心血管疾病的影响
@@ -1100,24 +1274,39 @@ maxcardvasc=Best_Guess(datalist[[123]]$V1);
 
 ImpactCardiovascularComponent<-function(population,temp,plus,urbpop){
   t=clock_Current(year_current);
-  basecardvasc[t,]<<-cardvasc90[1,]+cvlin*(plus[t,]-plus90[1,]);
-  basecardvasc[t,]<<-ifelse(basecardvasc[t,]>1,1,basecardvasc[t,]);
-  baseresp[t,]<<-resp90[1,]+rlin*(plus[t,]-plus90[1,]);
-  baseresp[t,]<<-ifelse(baseresp[t,]>1,1,baseresp[t,]);
-  s_cardheat=(chplbm[1,]*plus[t,]+chmlbm[1,]*(1-plus[t,]))*temp[t,]+
-    (chpqbm[1,]*plus[t,]+chmqbm[1,]*(1-plus[t,]))*(temp[t,r]^2);
-  cardheat[t,]<<-s_cardheat*urbpop[t,]*population[t,]*10;
-  cardheat[t,]<<-ifelse(cardheat[t,]>1000*maxcardvasc*basecardvasc[t,]*urbpop[t,]*population[t,],1000*maxcardvasc*basecardvasc[t,]*urbpop[t,]*population[t,],cardheat[t,]);
-  cardheat[t,]<<-ifelse(cardheat[t,]<0,0,cardheat[t,]);
-  resp[t,]<<-rlbm[1,]*temp[t,]+rqbm[1,]*(temp[t,]^2);
-  resp[t,]<<-resp[t,]*urbpop[t,]*population[t,]*10;
-  resp[t,]<<-ifelse(resp[t,]>1000*maxcardvasc*baseresp[t,]*urbpop[t,]*population[t,],1000*maxcardvasc*baseresp[t,]*urbpop[t,]*population[t,],resp[t,]);
-  resp[t,]<<-ifelse(resp[t,]<0,0,resp[t,]);
-  s_cardcold=(ccplbm[1,]*plus[t,]+ccmlbm[1,]*(1-plus[t,]))*temp[t,]+
-    (ccpqbm[1,]*plus[t,]+ccmqbm[1,]*(1-plus[t,]))*(temp[t,]^2);
-  cardcold[t,]<<-s_cardcold*population[t,]*10;
-  cardcold[t,]<<-ifelse(cardcold[t,] < (0-1000*maxcardvasc*basecardvasc[t,]*population[t,]),(0-1000*maxcardvasc*basecardvasc[t,]*population[t,]),cardcold[t,]);
-  cardcold[t,]<<-ifelse(cardcold[t,]>0,0,cardcold[t,]);
+  for(r in 1:Region_No){
+    basecardvasc[t,r]<<-cardvasc90[1,r]+cvlin*(plus[t,r]-plus90[1,r]);
+    if(basecardvasc[t,r]>1) {
+      basecardvasc[t,r]<<-1;
+    }
+    baseresp[t,r]<<-resp90[1,r]+rlin*(plus[t,r]-plus90[1,r]);
+    if(baseresp[t,r]>1) {
+      baseresp[t,r]<<-1;
+    }
+    s_cardheat=(chplbm[1,r]*plus[t,r]+chmlbm[1,r]*(1-plus[t,r]))*temp[t,r]+
+      (chpqbm[1,r]*plus[t,r]+chmqbm[1,r]*(1-plus[t,r]))*(temp[t,r]^2);
+    cardheat[t,r]<<-s_cardheat*urbpop[t,r]*population[t,r]*10;
+    if(cardheat[t,r]>1000*maxcardvasc*basecardvasc[t,r]*urbpop[t,r]*population[t,r]){
+      cardheat[t,r]<<-1000*maxcardvasc*basecardvasc[t,r]*urbpop[t,r]*population[t,r];
+    }
+    else {
+      cardheat[t,r]<<-cardheat[t,r];
+    }
+    if(cardheat[t,r]<0){cardheat[t,r]<<-0;}
+    resp[t,r]<<-rlbm[1,r]*temp[t,r]+rqbm[1,r]*(temp[t,r]^2);
+    resp[t,r]<<-resp[t,r]*urbpop[t,r]*population[t,r]*10;
+    if(resp[t,r]>1000*maxcardvasc*baseresp[t,r]*urbpop[t,r]*population[t,r]){
+      resp[t,r]<<-1000*maxcardvasc*baseresp[t,r]*urbpop[t,r]*population[t,r]
+    }
+    if(resp[t,r]<0){resp[t,r]<<-0;}
+    s_cardcold=(ccplbm[1,r]*plus[t,r]+ccmlbm[1,r]*(1-plus[t,r]))*temp[t,r]+
+      (ccpqbm[1,r]*plus[t,r]+ccmqbm[1,r]*(1-plus[t,r]))*(temp[t,r]^2);
+    cardcold[t,r]<<-s_cardcold*population[t,r]*10;
+    if(cardcold[t,r] < (0-1000*maxcardvasc*basecardvasc[t,r]*population[t,r])){
+      cardcold[t,r]<<-(0-1000*maxcardvasc*basecardvasc[t,r]*population[t,r]);
+    }
+    if(cardcold[t,r]>0) {cardcold[t,r]<<-0;}
+  }
 }
 
 #计算温升导致死亡率变化
@@ -1158,15 +1347,20 @@ vslypc0=Best_Guess(datalist[[182]]$V1);
 vmorbypc0=Best_Guess(datalist[[179]]$V1);
 ImpactDeathMorbidityComponent<-function(population,income,dengue,schisto,malaria,cardheat,cardcold,resp,diadead,hurrdead,extratropicalstormsdead,diasick){
   t=clock_Current(year_current);
-  ypc=income[t,]/population[t,]*1000;
-  dead[t,]<<-dengue[t,]+schisto[t,]+malaria[t,]+cardheat[t,]+cardcold[t,]+resp[t,]+diadead[t,]+hurrdead[t,]+extratropicalstormsdead[t,];
-  dead[t,]<<-ifelse(dead[t,]>population[t,]*1000000,population[t,]*1000000,dead[t,]);
-  yll[t,]<<-d2ld[1,]*dengue[t,]+d2ls[1,]*schisto[t,]+d2lm[1,]*malaria[t,]+d2lc[1,]*cardheat[t,]+d2lc[1,]*cardcold[t,]+d2lr[1,]*resp[t,];
-  yld[t,]<<-d2dd[1,]*dengue[t,]+d2ds[1,]*schisto[t,]+d2dm[1,]*malaria[t,]+d2dc[1,]*cardheat[t,]+d2dc[1,]*cardcold[t,]+d2dr[1,]*resp[t,]+diasick[t,];
-  vsl[t,]<<-vslbm*((ypc/vslypc0)^vslel);
-  deadcost[t,]<<-vsl[t,]*dead[t,]/1000000000;
-  vmorb[t,]<<-vmorbbm*((ypc/vmorbypc0)^vmorbel);
-  morbcost[t,]<<-vmorb[t,]*yld[t,]/1000000000;
+  for(r in 1:Region_No){
+    ypc=income[t,r]/population[t,r]*1000;
+    dead[t,r]<<-dengue[t,r]+schisto[t,r]+malaria[t,r]+cardheat[t,r]+cardcold[t,r]+resp[t,r]+diadead[t,r]+hurrdead[t,r]+extratropicalstormsdead[t,r];
+    if(dead[t,r]>population[t,r]*1000000){
+      dead[t,r]<<-population[t,r]*1000000;
+    }
+    yll[t,r]<<-d2ld[1,r]*dengue[t,r]+d2ls[1,r]*schisto[t,r]+d2lm[1,r]*malaria[t,r]+d2lc[1,r]*cardheat[t,r]+d2lc[1,r]*cardcold[t,r]+d2lr[1,r]*resp[t,r];
+    yld[t,r]<<-d2dd[1,r]*dengue[t,r]+d2ds[1,r]*schisto[t,r]+d2dm[1,r]*malaria[t,r]+d2dc[1,r]*cardheat[t,r]+d2dc[1,r]*cardcold[t,r]+d2dr[1,r]*resp[t,r]+diasick[t,r];
+    vsl[t,r]<<-vslbm*((ypc/vslypc0)^vslel);
+    deadcost[t,r]<<-vsl[t,r]*dead[t,r]/1000000000;
+    #deadcost[t,r]=vyll*ypc*yll/10000000000;
+    vmorb[t,r]<<-vmorbbm*((ypc/vmorbypc0)^vmorbel);
+    morbcost[t,r]<<-vmorb[t,r]*yld[t,r]/1000000000;
+  }
 }
 
 
@@ -1195,7 +1389,6 @@ for(r in 1:Region_No){
 }
 ImpactAggregationComponent<-function(income,heating,cooling,agcost,species,water,hurrdam,extratropicalstormsbasedam,forests,drycost,protcost,entercost,deadcost,morbcost,wetcost,leavecost){
   t=clock_Current(year_current);
-  
   for(r in 1:Region_No){
     eloss[t,r]<<-min(0-ifelse(switchoffwater==TRUE,0,water[t,r])
                      -ifelse(switchoffforests==TRUE,0,forests[t,r])
@@ -1207,20 +1400,20 @@ ImpactAggregationComponent<-function(income,heating,cooling,agcost,species,water
                      +ifelse(switchoffentercost==TRUE,0,entercost[t,r])
                      +ifelse(switchoffhurrdam==TRUE,0,hurrdam[t,r])
                      +ifelse(switchoffextratropicalstromsdam==TRUE,0,extratropicalstormsdam[t,r]),income[t,r])
-    
+  }
+  for(r in 1:Region_No){
     sloss[t,r]<<-(0+ifelse(switchoffspecies==TRUE,0,species[t,r])
                   +ifelse(switchoffdeadcost==TRUE,0,deadcost[t,r])
                   +ifelse(switchoffmorbcost==TRUE,0,morbcost[t,r])
                   +ifelse(switchoffwetcost==TRUE,0,wetcost[t,r])
                   +ifelse(switchoffleavecost==TRUE,0,leavecost[t,r]));
+    
+  }
+  for(r in 1:Region_No){
     loss[t,r]<<-(eloss[t,r]+sloss[t,r])*1000000000;
   }
 }
-
-library(compiler);
-enableJIT(1);
-
-Playground_Model<-function(YearTorun){     # CALCULATE DAMAGE
+Playground_Model<-function(YearTorun){
   for(t in 1:YearTorun){
     year_current<<-t;
     if(t==1){
@@ -1232,11 +1425,45 @@ Playground_Model<-function(YearTorun){     # CALCULATE DAMAGE
       ImpactVectorBornelDiseases(population,temp,income )
     }
     else{
-      ClimateRegionComponent(s_temp)
       GeographyComponent(landloss)
       PopulationComponent(pgrowth,leave,enter,dead)
       SocialEconomicComponemt(ypcgrowth,pgrowth,eloss,sloss,mitigationcost,Area,globalpopulation,population,population1)
-      
+      EmissionComponent(aeei,acei,forestemm,pgrowth,ypcgrowth,income,population)
+      if(MarginalEmission_CO2==FALSE){
+        ClimateCO2CycleComponent(mco2,temp)
+      }
+      else{
+        MarginalEmissionComponent(mco2)
+        mco2<<-modelemission;
+        ClimateCO2CycleComponent(mco2,temp)
+      }
+      if(MarginalEmission_CH4==FALSE){
+        ClimateCH4CycleComponent(globch4) 
+      }
+      else{
+        MarginalEmissionComponent(globch4)
+        globch4<<-modelemission;
+        ClimateCH4CycleComponent(globch4) 
+      }
+      if(MarginalEmission_N2O==FALSE){
+        ClimateN2OCycleComponent(globn2o) 
+      }
+      else{
+        MarginalEmissionComponent(globn2o)
+        globn2o<<-modelemission;
+        ClimateN2OCycleComponent(globn2o)
+      }
+      if(MarginalEmission_SF6==FALSE){
+        ClimateSF6CycleComponent(globsf6)
+      }
+      else{
+        MarginalEmissionComponent(globsf6)
+        globsf6<<-modelemission;
+        ClimateSF6CycleComponent(globsf6)
+      }
+      ClimateForcingComponent(acco2,acch4,acn2o,acsf6)
+      ClimateDynamicComponent(radforc)
+      ClimateRegionComponent(s_temp)
       OceanComponent(s_temp)
       BioDiversityComponent(s_temp)
       ImpactBiodiversityComponent(temp,nospieces,income,population)
@@ -1256,3 +1483,21 @@ Playground_Model<-function(YearTorun){     # CALCULATE DAMAGE
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
