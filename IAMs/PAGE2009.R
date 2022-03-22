@@ -2,13 +2,15 @@
 #install.packages("triangle");
 library("triangle");
 
-a=list.files("PAGE_base");
+a=list.files("IAMs_R_version/PAGE09_model/PAGE_base");
 model_choose="MontelCarlo";
 datalist=lapply(a,function(name){
-  read.table(paste("PAGE_base/",name,sep=""),sep=",",header = TRUE)
+  read.table(paste("IAMs_R_version/PAGE09_model/PAGE_base/",name,sep=""),sep=",",header = TRUE)
 })
+#emissionperiod<-61;
 impulselength<-10;
 options(digits = 15);
+file_num=53;
 t0=1; #起始年份，模型默认为1950年
 TimeStep=10; #时间跨度
 Region_No=8; #区域数量
@@ -733,19 +735,11 @@ gdp_0=matrix(nrow =1,ncol = Region_No );
 pop0_initpopulation=matrix(nrow =1,ncol = Region_No );
 pop_population=matrix(nrow =TimeStep,ncol = Region_No );
 isatg_impactfxnsaturation = isat0_initialimpactfxnsaturation * (1 - save_savingsrate/100);
-
-
-#将gdp调整为mer计价的GDP
 for (r in 1:Region_No){
   gdp_0[r]=Best_Guess(datalist[[18]]$gdp_0[r]);
-  
-  # gdp_0=c(1.90665E+13, 1.47186E+13,9.55416E+12,2.35845E+12,4.98519E+12,3.95255E+12,3.63477E+12,4.50197E+12)/10^6;
-  
   pop0_initpopulation[r]=Best_Guess(datalist[[35]]$pop_0[r]);
   cons_percap_consumption_0[r] = (gdp_0[r] / pop0_initpopulation[r])*(1 - save_savingsrate / 100)
 }
-
-
 for(t in 1:TimeStep){
   for(r in 1:Region_No){
     grw_gdpgrowthrate[t,r]=Best_Guess(datalist[[19]][t,r+1]);
@@ -1825,7 +1819,7 @@ equalityweighting<-function(){
     }
     
     if (t == 1){
-      dfc_consumptiondiscountrate[t, r] <<- (1 + dr_discountrate[1, r] / 100)^(-(yp_yearsperiod[3]))
+      dfc_consumptiondiscountrate[1, r] <<- (1 + dr_discountrate[1, r] / 100)^(-yp_yearsperiod[1])
     }
     else{
       dfc_consumptiondiscountrate[t, r] <<- dfc_consumptiondiscountrate[t - 1, r] * (1 + dr_discountrate[t, r] / 100)^(-yp_yearsperiod[t])
@@ -1919,9 +1913,9 @@ playground_model<-function(){
 Extra_emission_model<-function(){
   for(i in 1:10){
     year_current<<-i;
-    if(i==3){
+    if(i==1){
       CO2_emissions();
-      e_globalCO2emissions[t]<<-e_globalCO2emissions[t]+10000;
+      e_globalCO2emissions[t]<<-e_globalCO2emissions[t]+100000;
       CO2_cycle();
       CO2_forcing();
       CH4_emissions();
